@@ -30,10 +30,6 @@
 
 #include "FWCore/ParameterSet/interface/ParameterSet.h"
 
-#include <iostream>
-#include <fstream>
-#include <string>
-
 using namespace edm;
 using namespace std;
 using namespace reco; 
@@ -54,6 +50,7 @@ FastbAnalyzer::FastbAnalyzer(const edm::ParameterSet& iConfig)
 {
    //now do what ever initialization is needed
   genParticle_ = consumes<reco::GenParticleCollection>(iConfig.getParameter<edm::InputTag>("GenParticle"));
+  jetFlavourInfosToken_ = consumes<reco::JetFlavourInfoMatchingCollection>(iConfig.getParameter<edm::InputTag>("jetflavourinfo"));
 
   jetLabels_ = iConfig.getParameter<std::vector<edm::InputTag> >("jetLabels");
   for ( std::vector<edm::InputTag>::const_iterator jetlabel = jetLabels_.begin(),
@@ -62,19 +59,32 @@ FastbAnalyzer::FastbAnalyzer(const edm::ParameterSet& iConfig)
   };
   
   btaglabels_ = iConfig.getParameter<std::vector<edm::InputTag> >("btagLabels");
-  for ( std::vector<edm::InputTag>::const_iterator btaglabel = btaglabels_.begin(),
-    btaglabelEnd = btaglabels_.end(); btaglabel != btaglabelEnd; ++btaglabel ) {
-    btagTokens_.push_back( consumes<reco::JetTagCollection>( *btaglabel ) );
-  };
+  method = iConfig.getParameter<string>("method");
+  // for ( std::vector<edm::InputTag>::const_iterator btaglabel = btaglabels_.begin(),
+  //   btaglabelEnd = btaglabels_.end(); btaglabel != btaglabelEnd; ++btaglabel ) {
+  //   btagTokens_.push_back( consumes<reco::JetTagCollection>( *btaglabel ) );
+  // };
 
-  matching_radius = iConfig.getParameter<double>("matchingradius");
-  btagcut = iConfig.getParameter<double>("btagcut");
-  taggerlabel = iConfig.getParameter<string>("taggerlabel");
   pT = iConfig.getParameter<double>("pT");
   numev = iConfig.getParameter<int>("numev");
 
-  N_matched_bjet=0;
-  N_genjet=0;
+  Nbjet=0;
+  Nbjet_CSVT=0;
+  Nbjet_CSVM=0;
+  Nbjet_CSVL=0;
+  Nbjet_CSVV1T=0;
+  Nbjet_CSVV1M=0;
+  Nbjet_CSVV1L=0;
+  Nbjet_CSVSLV1T=0;
+  Nbjet_CSVSLV1M=0;
+  Nbjet_CSVSLV1L=0;
+  Nbjet_CSVIVFV2T=0;
+  Nbjet_CSVIVFV2M=0;
+  Nbjet_CSVIVFV2L=0;
+  Nbjet_JPT=0;
+  Nbjet_JPM=0;
+  Nbjet_JPL=0;
+  Nbjet_TCHPT=0;
 
 }
 
@@ -98,84 +108,143 @@ FastbAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup)
 {
   using namespace edm;
 
-  genjet_pt.clear();
-  genjet_eta.clear();
-  genjet_phi.clear();
-  genjet_mass.clear();
-  genjet_discrim.clear();
 
-  jet_pt.clear();
-  jet_eta.clear();
-  jet_phi.clear();
-  jet_mass.clear();
-
-  bjet_pt.clear();
-  bjet_eta.clear();
-  bjet_phi.clear();
-  bjet_mass.clear();
-  bjet_discrim.clear();
-
-  double deltaR_value = matching_radius*matching_radius;
-
-  //Get genparticles
-  edm::Handle<reco::GenParticleCollection> genParticles;
-  iEvent.getByToken(genParticle_, genParticles );
-  for (reco::GenParticleCollection::const_iterator iter=genParticles->begin();iter!=genParticles->end();++iter){
-    if(!(   iter->status()==3   )) continue;
-    if(!(   iter->pdgId()==23   )) continue;
-    if((&*iter)->pdgId() == 5 || (&*iter)->pdgId() == -5) {
-      genjet_pt.push_back(iter->pt());
-      genjet_eta.push_back(iter->eta());
-      genjet_phi.push_back(iter->phi());
-      genjet_mass.push_back(iter->mass());
-      N_genjet++;
+  edm::Handle<reco::JetFlavourInfoMatchingCollection> theJetFlavourInfos;
+  iEvent.getByToken(jetFlavourInfosToken_, theJetFlavourInfos );
+  for ( reco::JetFlavourInfoMatchingCollection::const_iterator j  = theJetFlavourInfos->begin();
+                                     j != theJetFlavourInfos->end();
+                                     ++j ) {
+    // const reco::Jet *aJet = (*j).first.get();
+    reco::JetFlavourInfo aInfo = (*j).second;
+    if (abs(aInfo.getPartonFlavour())==5){
+      Nbjet++;
     };
-  };
 
-  //Get recojets
-  for (unsigned int icoll = 0; icoll < jetLabels_.size(); ++icoll ) {
-    edm::Handle<edm::View<reco::Jet>>  pfJetCollection;
-    bool ValidPFJets = iEvent.getByToken(jetTokens_[icoll], pfJetCollection );
-    if(!ValidPFJets) continue;
-    edm::View<reco::Jet> const & pfjets = *pfJetCollection;
-    for (unsigned int ijet=0; ijet<pfjets.size(); ++ijet){
-      jet_pt.push_back(pfjets[ijet].pt());
-      jet_eta.push_back(pfjets[ijet].eta());
-      jet_phi.push_back(pfjets[ijet].phi());
-      jet_mass.push_back(pfjets[ijet].mass());
-    };
   };
 
   //Loop over each b-tagger
   for (unsigned int icoll = 0; icoll != btaglabels_.size(); ++icoll) {
     //get bjets
     edm::Handle<reco::JetTagCollection> bTagHandle;
-    bool Validbtag = iEvent.getByToken(btagTokens_[icoll], bTagHandle);
+    bool Validbtag = iEvent.getByLabel(btaglabels_[icoll], bTagHandle);
     if (!Validbtag) continue;
     const reco::JetTagCollection & bTags = *(bTagHandle.product());
     for (unsigned int i = 0; i < bTags.size(); ++i) {
-      if (bTags[i].second > btagcut) {
-        for (unsigned int ijet=0; ijet<jet_eta.size(); ++ijet){
-          if (deltaR2(jet_eta[ijet],jet_phi[ijet],bTags[i].first->eta(),bTags[i].first->phi())<deltaR_value){
-            bjet_pt.push_back(bTags[i].first->pt());
-            bjet_eta.push_back(bTags[i].first->eta());
-            bjet_phi.push_back(bTags[i].first->phi());
-            bjet_mass.push_back(bTags[i].first->mass());
-            bjet_discrim.push_back(bTags[i].second);
-          };
+
+      if (btaglabels_[icoll].label() =="combinedSecondaryVertexBJetTags"){
+        if (bTags[i].second > 0.898){
+          Nbjet_CSVT++;
+        };
+        if (bTags[i].second > 0.679){
+          Nbjet_CSVM++;
+        };
+        if (bTags[i].second > 0.244){
+          Nbjet_CSVL++;
         };
       };
-    };
 
-    //matching with genjet
-    for (unsigned int ibjet = 0; ibjet < bjet_eta.size(); ++ibjet) {
-      for (unsigned int igenjet = 0; igenjet < genjet_eta.size(); ++igenjet) {
-        if (deltaR2(bjet_eta[ibjet],bjet_phi[ibjet],genjet_eta[igenjet],genjet_phi[igenjet])<deltaR_value){
-          N_matched_bjet++;
+      if (btaglabels_[icoll].label()=="jetProbabilityBJetTags"){
+        if (bTags[i].second > 0.790){
+          Nbjet_JPT++;
+        };
+        if (bTags[i].second > 0.545){
+          Nbjet_JPM++;
+        };
+        if (bTags[i].second > 0.275){
+          Nbjet_JPL++;
+        };
+      };
+
+      if (btaglabels_[icoll].label()=="combinedSecondaryVertexV1BJetTags"){
+        if (bTags[i].second > 0.405){
+          Nbjet_CSVV1L++;
+        };
+        if (bTags[i].second > 0.783){
+          Nbjet_CSVV1M++;
+        };
+        if (bTags[i].second > 0.920){
+          Nbjet_CSVV1T++;
+        };
+      };
+
+      if (btaglabels_[icoll].label()=="combinedSecondaryVertexSoftPFLeptonV1BJetTags"){
+        if (bTags[i].second > 0.527){
+          Nbjet_CSVSLV1L++;
+        };
+        if (bTags[i].second > 0.756){
+          Nbjet_CSVSLV1M++;
+        };
+        if (bTags[i].second > 0.859){
+          Nbjet_CSVSLV1T++;
+        };
+      };
+
+      if (btaglabels_[icoll].label()=="combinedSecondaryVertexIVFV2BJetTags"){
+        if (bTags[i].second > 0.423){
+          Nbjet_CSVIVFV2L++;
+        };
+        if (bTags[i].second > 0.814){
+          Nbjet_CSVIVFV2M++;
+        };
+        if (bTags[i].second > 0.941){
+          Nbjet_CSVIVFV2T++;
+        };
+      };
+
+      if (btaglabels_[icoll].label()=="trackCountingHighPurBJetTags"){
+        if (bTags[i].second > 3.41){
+          Nbjet_TCHPT++;
         };
       };
     };
   };
+
+
+  //Get genparticles
+  // edm::Handle<reco::GenParticleCollection> genParticles;
+  // iEvent.getByToken(genParticle_, genParticles );
+  // for (reco::GenParticleCollection::const_iterator iter=genParticles->begin();iter!=genParticles->end();++iter){
+  //   if(!(   iter->status()==3   )) continue;
+  //   if(!(   iter->pdgId()==23   )) continue;
+  //   if((&*iter)->pdgId() == 5 || (&*iter)->pdgId() == -5) {
+  //     genjet_pt.push_back(iter->pt());
+  //     genjet_eta.push_back(iter->eta());
+  //     genjet_phi.push_back(iter->phi());
+  //     genjet_mass.push_back(iter->mass());
+  //     N_genjet++;
+  //   };
+  // };
+
+  // //Filling histogram with correctly tagged b jets
+  // edm::Handle< edm::View<reco::Jet> > jets;
+  // edm::Handle<reco::JetTagCollection> bJetTags;
+  // iEvent.getByLabel("combinedSecondaryVertexBJetTags", bJetTags);
+  // iEvent.getByLabel("ak4PFJetsCHS", jets); //ak4PFJets are used to calculate CSV
+  // for (edm::View<reco::Jet>::const_iterator ijet = jets->begin(); ijet != jets->end(); ++ijet ){
+  //   for(unsigned int index = 0; index < jets->size(); ++index) {
+  //     float disc = (*bJetTags)[jets->refAt(index)];
+  //     if (disc > 0.898){
+  //       CTbjet_pt_CSVT->Fill(ijet->pt());
+  //       CTbjet_eta_CSVT->Fill(ijet->eta());
+  //       CTbjet_phi_CSVT->Fill(ijet->phi());
+  //     };
+  //     if (disc > 0.679){
+  //       CTbjet_pt_CSVM->Fill(ijet->pt());
+  //       CTbjet_eta_CSVM->Fill(ijet->eta());
+  //       CTbjet_phi_CSVM->Fill(ijet->phi());
+  //     };
+  //     if (disc > 0.244){
+  //       CTbjet_pt_CSVL->Fill(ijet->pt());
+  //       CTbjet_eta_CSVL->Fill(ijet->eta());
+  //       CTbjet_phi_CSVL->Fill(ijet->phi());
+  //     };
+  //   };
+  // };
+
+
+
+
+
 
 }
 
@@ -190,15 +259,99 @@ FastbAnalyzer::beginJob()
 void 
 FastbAnalyzer::endJob() 
 {
-  cout << "The number of matched bjets: "<<N_matched_bjet<<endl;
-  cout << "efficiency of btag: "<<((float)N_matched_bjet/N_genjet)<<endl;
+  cout << "The number of CSVT bjets: "  <<Nbjet_CSVT<<endl;
+  cout << "efficiency of CSVT: "        <<       ((float)Nbjet_CSVT/Nbjet)         <<endl;
+  cout << "efficiency of CSVM: "        <<       ((float)Nbjet_CSVM/Nbjet)         <<endl;
+  cout << "efficiency of CSVL: "        <<       ((float)Nbjet_CSVL/Nbjet)         <<endl;
+  cout << "efficiency of CSVV1T: "      <<       ((float)Nbjet_CSVV1T/Nbjet)       <<endl;
+  cout << "efficiency of CSVV1M: "      <<       ((float)Nbjet_CSVV1M/Nbjet)       <<endl;
+  cout << "efficiency of CSVV1L: "      <<       ((float)Nbjet_CSVV1L/Nbjet)       <<endl;
+  cout << "efficiency of CSVSLV1T: "    <<       ((float)Nbjet_CSVSLV1T/Nbjet)     <<endl;
+  cout << "efficiency of CSVSLV1M: "    <<       ((float)Nbjet_CSVSLV1M/Nbjet)     <<endl;
+  cout << "efficiency of CSVSLV1L: "    <<       ((float)Nbjet_CSVSLV1L/Nbjet)     <<endl;
+  cout << "efficiency of CSVIVFV2T: "   <<       ((float)Nbjet_CSVIVFV2T/Nbjet)    <<endl;
+  cout << "efficiency of CSVIVFV2M: "   <<       ((float)Nbjet_CSVIVFV2M/Nbjet)    <<endl;
+  cout << "efficiency of CSVIVFV2L: "   <<       ((float)Nbjet_CSVIVFV2L/Nbjet)    <<endl;
+  cout << "efficiency of JPT: "         <<       ((float)Nbjet_JPT/Nbjet)          <<endl;
+  cout << "efficiency of JPM: "         <<       ((float)Nbjet_JPM/Nbjet)          <<endl;
+  cout << "efficiency of JPL: "         <<       ((float)Nbjet_JPL/Nbjet)          <<endl;
+  cout << "efficiency of TCHPT: "       <<       ((float)Nbjet_TCHPT/Nbjet)        <<endl;
 
-  ofstream f_eff;
+  ofstream eff_file_CSVT;
+  ofstream eff_file_CSVM;
+  ofstream eff_file_CSVL;
+  ofstream eff_file_CSVV1T;
+  ofstream eff_file_CSVV1M;
+  ofstream eff_file_CSVV1L;
+  ofstream eff_file_CSVSLV1T;
+  ofstream eff_file_CSVSLV1M;
+  ofstream eff_file_CSVSLV1L;
+  ofstream eff_file_CSVIVFV2T;
+  ofstream eff_file_CSVIVFV2M;
+  ofstream eff_file_CSVIVFV2L;
+  ofstream eff_file_JPT;
+  ofstream eff_file_JPM;
+  ofstream eff_file_JPL; 
+  ofstream eff_file_TCHPT;
+  ofstream Nbjet_file;
 
-  std::string f_eff_name = taggerlabel+"_pt"+std::to_string(int(pT))+"_"+std::to_string(numev)+".txt";
-  f_eff.open(f_eff_name);
-  f_eff << ((float)N_matched_bjet/N_genjet)<<endl;
-  f_eff.close();
+  string dir = "/afs/cern.ch/work/k/klo/fastsim/validation_bjets/lsf/eff_file/";
+  string filetag = std::to_string(int(pT))+"_"+std::to_string(numev);
+
+  Nbjet_file.open(dir+"Nbjet.txt");
+  eff_file_CSVT.open(dir+method+"_CSVT_"+filetag+".txt");
+  eff_file_CSVM.open(dir+method+"_CSVM_"+filetag+".txt");
+  eff_file_CSVL.open(dir+method+"_CSVL_"+filetag+".txt");
+  eff_file_CSVV1T.open(dir+method+"_CSVV1T_"+filetag+".txt");
+  eff_file_CSVV1M.open(dir+method+"_CSVV1M_"+filetag+".txt");
+  eff_file_CSVV1L.open(dir+method+"_CSVV1L_"+filetag+".txt");
+  eff_file_CSVSLV1T.open(dir+method+"_CSVSLV1T_"+filetag+".txt");
+  eff_file_CSVSLV1M.open(dir+method+"_CSVSLV1M_"+filetag+".txt");
+  eff_file_CSVSLV1L.open(dir+method+"_CSVSLV1L_"+filetag+".txt");
+  eff_file_CSVIVFV2T.open(dir+method+"_CSVIVFV2T_"+filetag+".txt");
+  eff_file_CSVIVFV2M.open(dir+method+"_CSVIVFV2M_"+filetag+".txt");
+  eff_file_CSVIVFV2L.open(dir+method+"_CSVIVFV2L_"+filetag+".txt");
+  eff_file_JPT.open(dir+method+"_JPT_"+filetag+".txt");
+  eff_file_JPM.open(dir+method+"_JPM_"+filetag+".txt");
+  eff_file_JPL.open(dir+method+"_JPL_"+filetag+".txt");
+  eff_file_TCHPT.open(dir+method+"_TCHPT_"+filetag+".txt");
+
+  Nbjet_file << Nbjet <<endl;
+  eff_file_CSVT <<       ((float)Nbjet_CSVT/Nbjet)         <<endl;
+  eff_file_CSVM <<       ((float)Nbjet_CSVM/Nbjet)         <<endl;
+  eff_file_CSVL <<       ((float)Nbjet_CSVL/Nbjet)         <<endl;
+  eff_file_CSVV1T <<       ((float)Nbjet_CSVV1T/Nbjet)       <<endl;
+  eff_file_CSVV1M <<       ((float)Nbjet_CSVV1M/Nbjet)       <<endl;
+  eff_file_CSVV1L <<       ((float)Nbjet_CSVV1L/Nbjet)       <<endl;
+  eff_file_CSVSLV1T <<       ((float)Nbjet_CSVSLV1T/Nbjet)     <<endl;
+  eff_file_CSVSLV1M <<       ((float)Nbjet_CSVSLV1M/Nbjet)     <<endl;
+  eff_file_CSVSLV1L <<       ((float)Nbjet_CSVSLV1L/Nbjet)     <<endl;
+  eff_file_CSVIVFV2T <<       ((float)Nbjet_CSVIVFV2T/Nbjet)    <<endl;
+  eff_file_CSVIVFV2M <<       ((float)Nbjet_CSVIVFV2M/Nbjet)    <<endl;
+  eff_file_CSVIVFV2L <<       ((float)Nbjet_CSVIVFV2L/Nbjet)    <<endl;
+  eff_file_JPT <<       ((float)Nbjet_JPT/Nbjet)          <<endl;
+  eff_file_JPM <<       ((float)Nbjet_JPM/Nbjet)          <<endl;
+  eff_file_JPL  <<       ((float)Nbjet_JPL/Nbjet)          <<endl;
+  eff_file_TCHPT <<       ((float)Nbjet_TCHPT/Nbjet)        <<endl;
+
+  Nbjet_file.close();
+  eff_file_CSVT.close();
+  eff_file_CSVM.close();
+  eff_file_CSVL.close();
+  eff_file_CSVV1T.close();
+  eff_file_CSVV1M.close();
+  eff_file_CSVV1L.close();
+  eff_file_CSVSLV1T.close();
+  eff_file_CSVSLV1M.close();
+  eff_file_CSVSLV1L.close();
+  eff_file_CSVIVFV2T.close();
+  eff_file_CSVIVFV2M.close();
+  eff_file_CSVIVFV2L.close();
+  eff_file_JPT.close();
+  eff_file_JPM.close();
+  eff_file_JPL.close();
+  eff_file_TCHPT.close();
+
 
 }
 

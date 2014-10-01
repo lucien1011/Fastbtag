@@ -1,7 +1,4 @@
 import FWCore.ParameterSet.Config as cms
-import sys
-sys.path.insert(1,'/afs/cern.ch/work/k/klo/mypylib/')
-import myutils
 
 process = cms.Process("Demo")
 
@@ -14,74 +11,82 @@ options.register ('numEv',
                   VarParsing.VarParsing.multiplicity.singleton, # singleton or list
                   VarParsing.VarParsing.varType.int,          # string, int, or float
                   "Number of events to process")
+
 options.register ('pt',
                   500, # default value
                   VarParsing.VarParsing.multiplicity.singleton, # singleton or list
                   VarParsing.VarParsing.varType.int,          # string, int, or float
                   "specify pt of b parton")
-options.register ('tagger',
-                  "combinedSecondaryVertexBJetTags", # default value
-                  VarParsing.VarParsing.multiplicity.singleton, # singleton or list
-                  VarParsing.VarParsing.varType.string,          # string, int, or float
-                  "btag disciminator")
-options.register ('taggerlabel',
-                  "combinedSecondaryVertexTight", # default value
-                  VarParsing.VarParsing.multiplicity.singleton, # singleton or list
-                  VarParsing.VarParsing.varType.string,          # string, int, or float
-                  "btag disciminator label for eff file")
-options.register ('btagcut',
-                  0.898, # default value
-                  VarParsing.VarParsing.multiplicity.singleton, # singleton or list
-                  VarParsing.VarParsing.varType.float,          # string, int, or float
-                  "btag disciminator cut")
-options.register ('matchingradius',
-                  0.4, # default value
-                  VarParsing.VarParsing.multiplicity.singleton, # singleton or list
-                  VarParsing.VarParsing.varType.float,          # string, int, or float
-                  "matching radius for genParticles and bjets")
 options.register ('jobsplit',
                   1, # default value
                   VarParsing.VarParsing.multiplicity.singleton, # singleton or list
                   VarParsing.VarParsing.varType.int,          # string, int, or float
                   "the number of files for each pt point")
 
+options.register ('method',
+                  "full", # default value
+                  VarParsing.VarParsing.multiplicity.singleton, # singleton or list
+                  VarParsing.VarParsing.varType.string,          # string, int, or float
+                  "simulation method")
+
 options.parseArguments()
 
-process.maxEvents = cms.untracked.PSet( input = cms.untracked.int32(options.numEv) )
+process.maxEvents = cms.untracked.PSet( input = cms.untracked.int32(-1) )
 jobsplit=options.jobsplit
 
+from PhysicsTools.JetMCAlgos.HadronAndPartonSelector_cfi import selectedHadronsAndPartons
+process.selectedHadronsAndPartons = selectedHadronsAndPartons.clone()
 
-fullfilelist=myutils.getfilelistwithext("/afs/cern.ch/work/k/klo/fastsim/validation_bjets/lsf/Full/pgun/",".root")
-filelist = cms.untracked.vstring()
-templist = []
-for i in range(0,jobsplit):
-      filetag = "_".join([str(options.pt),str(options.numEv/options.jobsplit),str(i)])
-      inputfile = 'file:/afs/cern.ch/work/k/klo/fastsim/validation_bjets/lsf/Full/pgun/reco_pt'+filetag+'.root'
-      # inputfile = 'file:/afs/cern.ch/work/k/klo/fastsim/validation_bjets/lsf/Fast/pgun/pgun_5_pt'+filetag+'.root'
-      print inputfile.replace("file:","")
-      if inputfile.replace("file:","") in fullfilelist:
-            templist.append(inputfile)
+from PhysicsTools.JetMCAlgos.AK4PFJetsMCFlavourInfos_cfi import ak4JetFlavourInfos
+process.jetFlavourInfosAK4PFJets = ak4JetFlavourInfos.clone()
+
+numEv_per_job = options.numEv/options.jobsplit
+
+templist=[]
+
+if options.method == "full":
+      # for i in range(0,jobsplit):
+            # filetag = "_".join(["btag","pt"+str(options.pt),str(numEv_per_job),str(i)])
+      filetag = "_".join(["btag","pt"+str(options.pt),str(options.numEv)])
+      filename = "file:/afs/cern.ch/work/k/klo/fastsim/validation_bjets/lsf/Full/pgun/"+filetag+".root"
+      templist.append(filename)
+else:
+      if options.method == "fast":
+            filetag = "_".join(["btag","pt"+str(options.pt),str(options.numEv)])
+            filename = "file:/afs/cern.ch/work/k/klo/fastsim/validation_bjets/lsf/Fast/pgun/"+filetag+".root"
+            templist.append(filename)
+
+filelist=cms.untracked.vstring()
 filelist.extend(templist)
-
 
 process.source = cms.Source("PoolSource", 
                               fileNames = filelist,
                               skipBadFiles = cms.untracked.bool(True),
                               duplicateCheckMode = cms.untracked.string("noDuplicateCheck")
-
-
-
                               )
 
 process.demo = cms.EDAnalyzer('FastbAnalyzer',
-								GenParticle = cms.InputTag("genParticles"),
-								jetLabels = cms.VInputTag("ak4PFJets"),
-								btagLabels = cms.VInputTag(options.tagger),
-								btagcut = cms.double(options.btagcut),
-								taggerlabel = cms.string(options.taggerlabel),
-								matchingradius = cms.double(options.matchingradius),
-								pT = cms.double(options.pt),
-								numev = cms.int32(options.numEv)
+                                                GenParticle = cms.InputTag("genParticles"),
+                                                jetflavourinfo = cms.InputTag("jetFlavourInfosAK4PFJets"),
+                                                jetLabels = cms.VInputTag("ak4PFJets"),
+                                                btagLabels = cms.VInputTag("combinedSecondaryVertexBJetTags","jetProbabilityBJetTags","combinedSecondaryVertexV1BJetTags","combinedSecondaryVertexSoftPFLeptonV1BJetTags","combinedSecondaryVertexIVFV2BJetTags","trackCountingHighPurBJetTags"),
+                                                pT = cms.double(options.pt),
+                                                numev = cms.int32(options.numEv),
+                                                method = cms.string(options.method)
 )
 
-process.p = cms.Path(process.demo)
+rootdir = "/afs/cern.ch/work/k/klo/fastsim/validation_bjets/lsf/rootfile/"
+rootfile = rootdir+"Fastb_"+str(options.pt)+".root"
+
+# process.output = cms.OutputModule("PoolOutputModule",
+#     fileName = cms.untracked.string(rootfile)
+# )
+
+
+
+process.p = cms.Path(process.selectedHadronsAndPartons*process.jetFlavourInfosAK4PFJets*process.demo)
+
+# process.out = cms.EndPath(process.output)
+
+
+

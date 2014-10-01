@@ -5,8 +5,29 @@
 <use name="DataFormats/JetReco"/>
 <use name="RecoJets/JetProducers"/>
 <use name="RecoJets/JetAlgorithms"/>
- <use name="DataFormats/BTauReco"/> 
 
-<library file="FastbAnalyzer.cc" name="FastbAnalyzer">
-<flags EDM_PLUGIN="1"/>
+<use   name="FWCore/MessageLogger"/>
+<use   name="FWCore/MessageService"/>
+<use   name="FWCore/ServiceRegistry"/>
+<use   name="FWCore/Utilities"/>
+<use   name="DataFormats/Common"/>
+<use   name="DataFormats/BeamSpot"/>
+<use   name="DataFormats/TrackReco"/>
+<use   name="DataFormats/VertexReco"/>
+<use   name="DataFormats/BTauReco"/>
+<use   name="DataFormats/PatCandidates"/>
+<use   name="HLTrigger/HLTcore"/>
+<use   name="PhysicsTools/PatExamples"/>
+<use   name="PhysicsTools/PatAlgos"/>
+<use   name="PhysicsTools/PatUtils"/>
+<use   name="PhysicsTools/CandUtils"/>
+<use   name="PhysicsTools/UtilAlgos"/>
+<use   name="root"/>
+
+<library file="EventAnalyzer.cc FastbAnalyzer.cc" name="EventAnalyzer">
+<flags EDM_PLUGIN="1"/> 
 </library>
+
+<!-- <library file="FastbAnalyzer.cc" name="FastbAnalyzer">
+<flags EDM_PLUGIN="1"/>
+</library> -->
